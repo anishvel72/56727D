@@ -11,8 +11,18 @@
 
 using namespace vex;
 
+brain Brain;
+
+
 // A global instance of competition
 competition Competition;
+
+motor frontLeft = motor(PORT10, false);
+motor frontRight = motor(PORT20, true);
+motor backLeft = motor(PORT15, false);;
+motor backRight = motor(PORT2, true);
+controller Controller1;
+//inertial inertialSensor = inertial(PORT10);
 
 // define your global instances of motors and other devices here
 
@@ -61,25 +71,68 @@ void autonomous(void) {
 void usercontrol(void) {
   // User control code here, inside the loop
   while (1) {
-    // This is the main execution loop for the user control program.
-    // Each time through the loop your program should update motor + servo
-    // values based on feedback from the joysticks.
+    // Read controller axes
+    double forward = Controller1.Axis3.position(percent);  // Forward/Backward
+    double strafe  = Controller1.Axis4.position(percent);  // Left/Right
+    double turn    = Controller1.Axis1.position(percent);  // Rotation
 
-    // ........................................................................
-    // Insert user code here. This is where you use the joystick values to
-    // update your motors, etc.
-    // ........................................................................
+    // Combine values for X-drive motion
+    double frontLeftPower  = forward + strafe + turn;
+    double frontRightPower = forward - strafe - turn;
+    double backLeftPower   = forward - strafe + turn;
+    double backRightPower  = forward + strafe - turn;
 
-    wait(20, msec); // Sleep the task for a short amount of time to
+    // Clamp values manually to range [-100, 100]
+    if (frontLeftPower > 100) frontLeftPower = 100;
+    if (frontLeftPower < -100) frontLeftPower = -100;
+
+    if (frontRightPower > 100) frontRightPower = 100;
+    if (frontRightPower < -100) frontRightPower = -100;
+
+    if (backLeftPower > 100) backLeftPower = 100;
+    if (backLeftPower < -100) backLeftPower = -100;
+
+    if (backRightPower > 100) backRightPower = 100;
+    if (backRightPower < -100) backRightPower = -100;
+
+    // Apply motor power
+    frontLeft.spin(fwd,  frontLeftPower,  pct);
+    frontRight.spin(fwd, frontRightPower, pct);
+    backLeft.spin(fwd,   backLeftPower,   pct);
+    backRight.spin(fwd,  backRightPower,  pct);
+
+    wait(20, msec);  // Sleep the task for a short amount of time to
                     // prevent wasted resources.
   }
 }
+
+int displayTemperatures() {
+  while (true) {
+    Brain.Screen.clearScreen();
+    Brain.Screen.setCursor(1, 1);
+    Brain.Screen.print("Front Left: %.1f f", frontLeft.temperature(fahrenheit));
+    Brain.Screen.newLine();
+    Brain.Screen.print("Front Right: %.1f f", frontRight.temperature(fahrenheit));
+    Brain.Screen.newLine();
+    Brain.Screen.print("Back Left: %.1f f", backLeft.temperature(fahrenheit));
+    Brain.Screen.newLine();
+    Brain.Screen.print("Back Right: %.1f f", backRight.temperature(fahrenheit));
+
+    wait(500, msec); // update twice per second
+  }
+  return 0;
+}
+
+
 
 //
 // Main will set up the competition functions and callbacks.
 //
 int main() {
   // Set up callbacks for autonomous and driver control periods.
+
+  thread displayThread = thread(displayTemperatures);
+
   Competition.autonomous(autonomous);
   Competition.drivercontrol(usercontrol);
 
