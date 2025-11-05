@@ -24,6 +24,11 @@ motor backRight = motor(PORT2, true);
 controller Controller1;
 //inertial inertialSensor = inertial(PORT10);
 
+
+//Deadzone value
+
+int deadzone = 5;
+
 // define your global instances of motors and other devices here
 
 /*---------------------------------------------------------------------------*/
@@ -72,10 +77,15 @@ void usercontrol(void) {
   // User control code here, inside the loop
   while (1) {
     // Read controller axes
-    double forward = Controller1.Axis3.position(percent);  // Forward/Backward
-    double strafe  = Controller1.Axis4.position(percent);  // Left/Right
-    double turn    = Controller1.Axis1.position(percent);  // Rotation
+    double forward = 0;  // Forward/Backward
+    double strafe = 0;  // Left/Right
+    double turn = 0;  // Rotation
 
+    if (Controller1.Axis3.position(percent) > deadzone) forward = Controller1.Axis3.position(percent);
+
+    if (Controller1.Axis4.position(percent) < deadzone) strafe  = Controller1.Axis4.position(percent);
+
+    if (Controller1.Axis1.position(percent) < deadzone) turn = Controller1.Axis1.position(percent);
     // Combine values for X-drive motion
     double frontLeftPower  = forward + strafe + turn;
     double frontRightPower = forward - strafe - turn;
