@@ -81,11 +81,11 @@ void usercontrol(void) {
     double strafe = 0;  // Left/Right
     double turn = 0;  // Rotation
 
-    if (Controller1.Axis3.position(percent) > deadzone) forward = Controller1.Axis3.position(percent);
+    if (Controller1.Axis3.position(percent) > deadzone || Controller1.Axis3.position(percent) < (deadzone*-1)) forward = Controller1.Axis3.position(percent);
 
-    if (Controller1.Axis4.position(percent) < deadzone) strafe  = Controller1.Axis4.position(percent);
+    if (Controller1.Axis4.position(percent) > deadzone || Controller1.Axis4.position(percent) < (deadzone*-1)) strafe  = Controller1.Axis4.position(percent);
 
-    if (Controller1.Axis1.position(percent) < deadzone) turn = Controller1.Axis1.position(percent);
+    if (Controller1.Axis1.position(percent) > deadzone || Controller1.Axis1.position(percent) < (deadzone*-1)) turn = Controller1.Axis1.position(percent);
     // Combine values for X-drive motion
     double frontLeftPower  = forward + strafe + turn;
     double frontRightPower = forward - strafe - turn;
