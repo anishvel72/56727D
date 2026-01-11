@@ -1,108 +1,95 @@
-//main.cpp
+// main.cpp
+// PLEASE USE SNAKE_CASE
 
 #include "vex.h"
-
 using namespace vex;
 
+// Core objects
 brain Brain;
-
-
-// A global instance of competition
 competition Competition;
 
-
-//inertial inertialSensor = inertial(PORT10);
-
-
-//Deadzone value
-
+// Constants
 int deadzone = 5;
 
-//global instances of motors and other devices here
-motor frontLeft = motor(PORT10, false);
-motor frontRight = motor(PORT20, true);
-motor backLeft = motor(PORT15, false);;
-motor backRight = motor(PORT2, true);
-controller Controller1;
+// Drive motors
+motor front_left  = motor(PORT20, false);
+motor front_right = motor(PORT19, true);
+motor back_left   = motor(PORT18, false);
+motor back_right  = motor(PORT13, true);
 
+// Drive motor groups
+motor_group left_side  = motor_group(back_left, front_left);
+motor_group right_side = motor_group(back_right, front_right);
 
+// Bottom intake motor
+motor bottom_intake = motor(PORT2);
+
+// Controller
+controller controller_1;
+
+// Deadzone helper function
+int apply_deadzone(int value, int zone = deadzone) {
+  if (abs(value) < zone)
+    return 0;
+  return value;
+}
+
+// Intake Helper functions
+void intake_on() {
+  bottom_intake.spin(reverse, 100, pct);
+}
+
+void intake_off() {
+  bottom_intake.stop();
+}
 
 
 void pre_auton(void) {
-
-  // All activities that occur before the competition starts (ex:  clearing encoders, setting servo positions ...)
+  // Pre autonomous setup
 }
 
 void autonomous(void) {
-  // Insert autonomous user code here.
+  // Autonomous code
 }
 
 void usercontrol(void) {
-  // User control code here, inside the loop
-  while (1) {
-    // Read controller axes
-    double forward = 0;  // Forward/Backward
-    double strafe = 0;  // Left/Right
-    double turn = 0;  // Rotation
+  int left_power;
+  int right_power;
+  while (true) {
 
-    if (Controller1.Axis3.position(percent) > deadzone || Controller1.Axis3.position(percent) < (deadzone*-1)) forward = Controller1.Axis3.position(percent);
+    // Tank drive input
+    left_power  = apply_deadzone(controller_1.Axis3.position());
+    right_power = apply_deadzone(controller_1.Axis2.position());
 
-    if (Controller1.Axis4.position(percent) > deadzone || Controller1.Axis4.position(percent) < (deadzone*-1)) strafe  = Controller1.Axis4.position(percent);
+    // Apply power to motors
+    left_side.spin(fwd, left_power, pct);
+    right_side.spin(fwd, right_power, pct);
 
-    if (Controller1.Axis1.position(percent) > deadzone || Controller1.Axis1.position(percent) < (deadzone*-1)) turn = Controller1.Axis1.position(percent);
-    // Combine values for X-drive motion
-    double frontLeftPower  = forward + strafe + turn;
-    double frontRightPower = forward - strafe - turn;
-    double backLeftPower   = forward - strafe + turn;
-    double backRightPower  = forward + strafe - turn;
-
-    // Clamp values manually to range [-100, 100]
-    if (frontLeftPower > 100) frontLeftPower = 100;
-    if (frontLeftPower < -100) frontLeftPower = -100;
-
-    if (frontRightPower > 100) frontRightPower = 100;
-    if (frontRightPower < -100) frontRightPower = -100;
-
-    if (backLeftPower > 100) backLeftPower = 100;
-    if (backLeftPower < -100) backLeftPower = -100;
-
-    if (backRightPower > 100) backRightPower = 100;
-    if (backRightPower < -100) backRightPower = -100;
-
-    // Apply motor power
-    frontLeft.spin(fwd,  frontLeftPower,  pct);
-    frontRight.spin(fwd, frontRightPower, pct);
-    backLeft.spin(fwd,   backLeftPower,   pct);
-    backRight.spin(fwd,  backRightPower,  pct);
-
-    wait(20, msec);  // Sleep the task for a short amount of time to
-                    // prevent wasted resources.
+    wait(20, msec);
   }
 }
 
-int displayTemperatures() {
+void display_temperatures() {
   while (true) {
     Brain.Screen.clearScreen();
     Brain.Screen.setCursor(1, 1);
-    Brain.Screen.print("Front Left: %.1f f", frontLeft.temperature(fahrenheit));
+    Brain.Screen.print("Front Left: %.1f f", front_left.temperature(fahrenheit));
     Brain.Screen.newLine();
-    Brain.Screen.print("Front Right: %.1f f", frontRight.temperature(fahrenheit));
+    Brain.Screen.print("Front Right: %.1f f", front_right.temperature(fahrenheit));
     Brain.Screen.newLine();
-    Brain.Screen.print("Back Left: %.1f f", backLeft.temperature(fahrenheit));
+    Brain.Screen.print("Back Left: %.1f f", back_left.temperature(fahrenheit));
     Brain.Screen.newLine();
-    Brain.Screen.print("Back Right: %.1f f", backRight.temperature(fahrenheit));
+    Brain.Screen.print("Back Right: %.1f f", back_right.temperature(fahrenheit));
 
-    wait(1000, msec); // 1 time per second
+    wait(1000, msec);
   }
-  return 0;
 }
 
-
-
-//Competition Function Setup and Callback
+// Competition function setup
 int main() {
-  
 
+  controller_1.ButtonR1.pressed(intake_on);
+  controller_1.ButtonR1.released(intake_off);
 
   Competition.autonomous(autonomous);
   Competition.drivercontrol(usercontrol);
