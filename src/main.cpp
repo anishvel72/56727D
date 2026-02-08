@@ -66,20 +66,40 @@ inertial inertial_sensor = inertial(PORT13);
 
 
 //Piston
-digital_out piston_extend = digital_out(Brain.ThreeWirePort.A);
-digital_out piston_retract = digital_out(Brain.ThreeWirePort.B);
-bool piston_out = false;
+// Piston 1 (Original)
+digital_out piston_extend_1 = digital_out(Brain.ThreeWirePort.A);
+digital_out piston_retract_1 = digital_out(Brain.ThreeWirePort.B);
+bool piston_out_1 = false;
+
+// Piston 2 (New Piston)
+digital_out piston_extend_2 = digital_out(Brain.ThreeWirePort.C);
+digital_out piston_retract_2 = digital_out(Brain.ThreeWirePort.D);
+bool piston_out_2 = false;
 
 
-void pistonChange(void){
-  piston_out = !piston_out;
-  if (piston_out){
-    piston_extend.set(true);
-    piston_retract.set(false);
+
+void piston1Change(void) {
+  piston_out_1 = !piston_out_1;
+  
+  if (piston_out_1) {
+    piston_extend_1.set(true);
+    piston_retract_1.set(false);
+  } else {
+    piston_extend_1.set(false);
+    piston_retract_1.set(true);
   }
-  else {
-    piston_extend.set(false);
-    piston_retract.set(true);
+}
+
+// Toggle for Piston 2 (Extend/Retract)
+void piston2Change(void) {
+  piston_out_2 = !piston_out_2;
+  
+  if (piston_out_2) {
+    piston_extend_2.set(true);
+    piston_retract_2.set(false);
+  } else {
+    piston_extend_2.set(false);
+    piston_retract_2.set(true);
   }
 }
 // Deadzone helper function
@@ -446,8 +466,8 @@ int main() {
   controller_1.ButtonL1.released(intake_stop);
   controller_1.ButtonR1.released(intake_stop);
 
-  controller_1.ButtonB.pressed(pistonChange);
-  controller_1.ButtonY.pressed(pistonChange);
+  controller_1.ButtonB.pressed(piston1Change);
+  controller_1.ButtonY.pressed(piston2Change);
 
   controller_1.ButtonA.pressed(pause);
 
