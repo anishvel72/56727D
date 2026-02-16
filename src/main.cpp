@@ -10,7 +10,6 @@ competition Competition;
 
 volatile bool paused = false;
 
-
 float abs(float value){
   if (value < 0){
     return value * -1;
@@ -21,65 +20,92 @@ float abs(float value){
   else {return value;}
 }
 
+bool slowed_down = 0;
 
+void slow_toggle(void){
+  slowed_down = !slowed_down;
+}
+
+mutex odometry_mutex;
 // General Constants
 int deadzone = 5;
 int cpu_MSEC_delay = 20;
-const float wheel_diameter = 2.5; // inches
-const double wheel_circumference = wheel_diameter * 3.141592;
+const float wheel_diameter = 82.55; // mm
+const double wheel_circumference = wheel_diameter * M_PI;
+
+//Odometry
+rotation forward_tracker = rotation(PORT7, true);
+rotation sideways_tracker = rotation(PORT5);
+inertial inertial_sensor = inertial(20, left);
 
 
+double last_theta;
+//gps gps_sensor = gps(PORT7, 180);
 
-// Exit tolerances
-const float DISTANCE_TOLERANCE_DEG = 5.0;
-const float HEADING_TOLERANCE_DEG  = 1.0;
+//Odometry Tracking values
+double global_x = 0;
+double global_y = 0;
 
-// Turn PID constants
-const float TURN_KP = 0.7;
-const float TURN_KI = 0.0;
-const float TURN_KD = 0.25;
+double last_f = 0;
+double last_s = 0;
 
-const float TURN_ERROR_TOLERANCE = 1.0;   // degrees
-const int   TURN_SETTLE_TIME_MS  = 120;
 
 // Drive motors
-motor front_left  = motor(PORT1, false);
-motor front_right = motor(PORT20, true);
-motor back_left   = motor(PORT4, false);
-motor back_right  = motor(PORT9, true);
+motor front_left  = motor(PORT1, true);
+motor front_right = motor(PORT9, false);
+motor back_left   = motor(PORT2, true);
+motor back_right  = motor(PORT10, false);
 
 // Drive motor groups
 motor_group left_side  = motor_group(back_left, front_left);
 motor_group right_side = motor_group(back_right, front_right);
 
 // Bottom intake motor
-motor bottom_intake = motor(PORT3);
-motor middle_intake = motor(PORT10);
-motor top_intake = motor(PORT6);
-motor high_intake = motor(PORT5);
+motor bottom_intake = motor(PORT5);
+motor middle1_intake = motor(PORT6);
+motor middle2_intake = motor(PORT8);
+motor high_intake = motor(PORT13, true);
+motor unclog_storage_intake = motor(PORT11);
+
 
 // Controller
 controller controller_1;
 
-//Inertial
-inertial inertial_sensor = inertial(PORT13);
-
-
 //Piston
-digital_out piston_extend = digital_out(Brain.ThreeWirePort.A);
-digital_out piston_retract = digital_out(Brain.ThreeWirePort.B);
-bool piston_out = false;
+// Piston 1 (Original)
+digital_out piston_extend_1 = digital_out(Brain.ThreeWirePort.A);
+digital_out piston_retract_1 = digital_out(Brain.ThreeWirePort.B);
+bool piston_out_1 = false;
 
+// Piston 2 (New Piston)
+digital_out piston_extend_2 = digital_out(Brain.ThreeWirePort.C);
+digital_out piston_retract_2 = digital_out(Brain.ThreeWirePort.D);
+bool piston_out_2 = false;
 
-void pistonChange(void){
-  piston_out = !piston_out;
-  if (piston_out){
-    piston_extend.set(true);
-    piston_retract.set(false);
+double TRACKING_WHEEL_CIRCUMFERENCE = 50.8 * M_PI; //mm
+
+void piston1Change(void) {
+  piston_out_1 = !piston_out_1;
+  
+  if (piston_out_1) {
+    piston_extend_1.set(true);
+    piston_retract_1.set(false);
+  } else {
+    piston_extend_1.set(false);
+    piston_retract_1.set(true);
   }
-  else {
-    piston_extend.set(false);
-    piston_retract.set(true);
+}
+
+// Toggle for Piston 2 (Extend/Retract)
+void piston2Change(void) {
+  piston_out_2 = !piston_out_2;
+  
+  if (piston_out_2) {
+    piston_extend_2.set(true);
+    piston_retract_2.set(false);
+  } else {
+    piston_extend_2.set(false);
+    piston_retract_2.set(true);
   }
 }
 // Deadzone helper function
@@ -89,55 +115,49 @@ int apply_deadzone(int value, int zone = deadzone) {
   return value;
 }
 
-//Drive PID Helper functions
-double clamp(double value, double max_mag) {
-  if (value >  max_mag) return  max_mag;
-  if (value < -max_mag) return -max_mag;
-  return value;
-}
-
-
-
-double average_drive_position_deg() {
-  return (
-    fabs(front_left.position(deg)) +
-    fabs(back_left.position(deg)) +
-    fabs(front_right.position(deg)) +
-    fabs(back_right.position(deg))
-  ) / 4.0;
-}
-
-
 // Intake Helper functions
 void low_goal_score(void){
-  bottom_intake.spin(forward, 100, pct);
-  middle_intake.spin(reverse, 100, pct);
-  top_intake.spin(reverse, 100, pct);
-}
-
-void top_goal_score(void){
-  bottom_intake.spin(reverse, 100, pct);
-  middle_intake.spin(forward, 100, pct);
-  top_intake.spin(reverse, 100, pct);
+  bottom_intake.spin(reverse, 50, pct);
+  middle1_intake.spin(reverse, 100, pct);
+  unclog_storage_intake.spin(reverse, 100, pct);
+  middle2_intake.spin(reverse, 100, pct);
   high_intake.spin(reverse, 100, pct);
 }
 
+void top_goal_score(void){
+  bottom_intake.spin(forward, 100, pct);
+  middle1_intake.spin(reverse, 100, pct);
+  unclog_storage_intake.spin(reverse, 100, pct);
+  middle2_intake.spin(forward, 100, pct);
+  high_intake.spin(forward, 100, pct);
+}
+
 void storage(void){
-  bottom_intake.spin(reverse, 100, pct);
-  middle_intake.spin(forward, 100, pct);
-  top_intake.spin(forward, 100, pct);
+  bottom_intake.spin(forward, 100, pct);
+  middle1_intake.spin(forward, 100, pct);
+  unclog_storage_intake.spin(reverse, 100, pct);
+  middle2_intake.spin(forward, 100, pct);
+  high_intake.spin(reverse, 100, pct);
 }
 
 void intake_stop(void){
   bottom_intake.stop();
-  middle_intake.stop();
-  top_intake.stop();
+  middle1_intake.stop();
+  middle2_intake.stop();
   high_intake.stop();
+  unclog_storage_intake.stop();
+}
+
+void middle_goal_score(void){
+  bottom_intake.spin(forward, 100, pct);
+  middle1_intake.spin(reverse, 100, pct);
+  middle2_intake.spin(forward, 100, pct);
+  high_intake.spin(reverse, 100, pct);
 }
 
 
 //WORKS!
-void turn_to_angle(float target_angle, float kP = 0.2, float maxSpeed = 100){
+void turn_by_angle(float target_angle, float kP = 0.2, float maxSpeed = 100){
     inertial_sensor.setRotation(0, degrees);
 
     float speed = 100;
@@ -188,98 +208,6 @@ void turn_to_angle(float target_angle, float kP = 0.2, float maxSpeed = 100){
     right_side.spin(forward, 0, percent);
 
 }
-    
-void drive_forward_pid(
-  float distance_inches,
-  float max_speed = 50,
-  float kP_drive = 0.6,
-  float kP_heading = 0.5
-) {
-  // Reset encoders
-  front_left.setPosition(0, degrees);
-  front_right.setPosition(0, degrees);
-  back_left.setPosition(0, degrees);
-  back_right.setPosition(0, degrees);
-
-  // Target distance in degrees
-  float target_rotation =
-    (distance_inches / wheel_circumference) * 360.0;
-
-  // Hold starting heading
-  float start_heading = inertial_sensor.heading(degrees);
-
-  int settle_time = 0;
-  const int settle_required = 120;
-
-  while (true) {
-
-    // Pause-safe
-    if (paused) {
-      left_side.stop(brake);
-      right_side.stop(brake);
-      wait(cpu_MSEC_delay, msec);
-      continue;
-    }
-
-    // Average encoder distance (magnitude only)
-    float current_rotation =
-      (fabs(front_left.position(degrees)) +
-       fabs(front_right.position(degrees)) +
-       fabs(back_left.position(degrees)) +
-       fabs(back_right.position(degrees))) / 4.0;
-
-    // Signed distance error
-    float rotation_error = target_rotation - current_rotation;
-
-    // Heading correction
-    float heading_error =
-      start_heading - inertial_sensor.heading(degrees);
-
-    if (heading_error > 180) heading_error -= 360;
-    if (heading_error < -180) heading_error += 360;
-
-    float heading_correction = heading_error * kP_heading;
-
-    // Drive PID (P-only, sign comes from error)
-    float speed = rotation_error * kP_drive;
-    speed = clamp(speed, fabs(max_speed));
-
-    // Apply drive
-    left_side.spin(forward,
-      speed + heading_correction, percent);
-    right_side.spin(forward,
-      speed - heading_correction, percent);
-
-    // Debug print
-    Brain.Screen.clearScreen();
-    Brain.Screen.setCursor(1, 1);
-    Brain.Screen.print("Target: %.1f", target_rotation);
-    Brain.Screen.newLine();
-    Brain.Screen.print("Current: %.1f", current_rotation);
-    Brain.Screen.newLine();
-    Brain.Screen.print("Error: %.1f", rotation_error);
-    Brain.Screen.newLine();
-    Brain.Screen.print("Speed: %.1f", speed);
-
-    // Exit condition
-    if (fabs(rotation_error) < DISTANCE_TOLERANCE_DEG &&
-        fabs(heading_error) < HEADING_TOLERANCE_DEG) {
-      settle_time += cpu_MSEC_delay;
-    } else {
-      settle_time = 0;
-    }
-
-    if (settle_time >= settle_required) {
-      break;
-    }
-
-    wait(cpu_MSEC_delay, msec);
-  }
-
-  // Stop motors
-  left_side.stop(brake);
-  right_side.stop(brake);
-}
 
 void pre_auton(void) {
   // Pre autonomous setup
@@ -289,14 +217,23 @@ void pre_auton(void) {
     wait(cpu_MSEC_delay, msec);
   }
 
+  last_theta = inertial_sensor.rotation(deg);
   Brain.Screen.clearScreen();
   Brain.Screen.print('Calibration Complete');
   wait(200, msec);
   Brain.Screen.clearScreen();
+
+  
+  forward_tracker.setPosition(0, degrees);
+  sideways_tracker.setPosition(0, degrees);
+  inertial_sensor.setRotation(0, degrees);
+
 }
 
 void autonomous(void) {
   /*
+
+  *** THIS IS THE ORIGINAL SKILLS AUTON
   left_side.spin(reverse, 100, percent);
   right_side.spin(reverse, 100, percent);
   wait(500, msec);
@@ -312,61 +249,46 @@ void autonomous(void) {
   
   left_side.spin(forward, 0, percent);
   right_side.spin(forward, 0, percent);
-  */
-
-
-  storage();
-  left_side.spin(forward, 100, percent);
-  right_side.spin(forward, 100, percent);
-  wait(1000, msec);
-
-
-
-  left_side.spin(forward, 0, percent);
-  right_side.spin(forward, 0, percent);
-  intake_stop();
-
-
-  turn_to_angle(-45);
-
-  left_side.spin(forward, 100, percent);
-  right_side.spin(forward, 100, percent);
-  wait(200, msec);
-
-  left_side.spin(forward, 0, percent);
-  right_side.spin(forward, 0, percent);
-
-  low_goal_score();
-
-  wait(500, msec);
-
-  intake_stop();
-
-  turn_to_angle(135);
+  
 
   left_side.spin(forward, 100, percent);
   right_side.spin(forward, 100, percent);
   wait(1500, msec);
-  turn_to_angle(90);
-
-  left_side.spin(forward, 100, percent);
-  right_side.spin(forward, 100, percent);
-  wait(2000, msec);
-
-  left_side.spin(reverse, 100, percent);
-  right_side.spin(reverse, 100, percent);
-  wait(750, msec);
   
-  left_side.spin(forward, 0, percent);
-  right_side.spin(forward, 0, percent);
 
 
+  left_side.spin(forward, 30, percent);
+  right_side.spin(forward, 30, percent);
+  wait(500, msec);
 
 
+  left_side.spin(forward, 30, percent);
+  right_side.spin(forward, 40, percent);
+  bottom_intake.spin(forward, 100, pct);
+  middle1_intake.spin(forward, 100, pct);
+  unclog_storage_intake.spin(reverse, 100, pct);
+  middle2_intake.spin(forward, 100, pct);
+  high_intake.spin(reverse, 100, pct);
+  wait(1500, msec);
 
+  left_side.spin(reverse, 20, percent);
+  right_side.spin(reverse, 20, percent);
+  wait(400, msec);
+  
+  left_side.stop(coast);
+  right_side.stop(coast);
 
+  wait(1000, msec);
 
+  bottom_intake.spin(reverse, 30, pct);
+  middle1_intake.spin(reverse, 50, pct);
+  middle2_intake.spin(reverse, 50, pct);
+  wait(1000, msec);
 
+  bottom_intake.stop(coast);
+  middle1_intake.stop(coast);
+  middle2_intake.stop(coast);
+  */
 }
 
 void usercontrol(void) {
@@ -375,10 +297,7 @@ void usercontrol(void) {
   int left_power;
   int right_power;
 
-
-
   while (true) {
-    
     
     forward_power = apply_deadzone(controller_1.Axis3.position());
     turn = apply_deadzone(controller_1.Axis1.position());
@@ -387,11 +306,17 @@ void usercontrol(void) {
     right_power = forward_power - turn;
 
     // Clamp values to valid motor range
-    if (left_power > 100) {left_power = 100;}
-    if (left_power < -100) {left_power = -100;}
+    if (left_power > (100)) {left_power = (100);}
+    if (left_power < -(100)) {left_power = -(100);}
     
-    if (right_power > 100) {right_power = 100;}
-    if (right_power < -100) {right_power = -100;}
+    if (right_power > (100)) {right_power = (100);}
+    if (right_power < -(100)) {right_power = -(100);}
+
+
+    if (slowed_down){
+      left_power *= 0.3;
+      right_power *= 0.3;
+    }
 
     left_side.spin(forward, left_power, percent);
     right_side.spin(forward, right_power, percent);
@@ -400,56 +325,131 @@ void usercontrol(void) {
   }
 }
 
-
-
 void display(void) {
   while (true) {
     Brain.Screen.clearScreen();
     Brain.Screen.setCursor(1, 1);
 
-    Brain.Screen.print("Inertial Heading: %.1f", inertial_sensor.heading(degrees));
+    Brain.Screen.print("MATCH-AUTON RUNS HERE");
     Brain.Screen.newLine();
-    Brain.Screen.print("Front Left: %.1f f", front_left.temperature(fahrenheit));
-    Brain.Screen.newLine();
-    Brain.Screen.print("Front Right: %.1f f", front_right.temperature(fahrenheit));
-    Brain.Screen.newLine();
-    Brain.Screen.print("Back Left: %.1f f", back_left.temperature(fahrenheit));
-    Brain.Screen.newLine();
-    Brain.Screen.print("Back Right: %.1f f", back_right.temperature(fahrenheit));
 
-    wait(500, msec);
+    Brain.Screen.print("Forward Tracker: %.2f mm", forward_tracker.position(degrees));
+    Brain.Screen.newLine();
+
+    Brain.Screen.print("Sideways Tracker: %.2f mm", sideways_tracker.position(degrees));
+    Brain.Screen.newLine();
+
+    Brain.Screen.print("Inertial Heading: %.2f degrees", inertial_sensor.heading(degrees));
+    Brain.Screen.newLine();
+
+
+    odometry_mutex.lock();
+    Brain.Screen.print("X: %.2f", global_x);
+    Brain.Screen.newLine();
+    Brain.Screen.print("Y: %.2f", global_y);
+    odometry_mutex.unlock();
+
+
+
+    wait(100, msec);
+  }
+}
+
+
+/*
+
+***OLD ODOMETRY TASK
+
+void odom_Task(void) {
+  while (true) {
+    double f = forward_tracker.position(deg);
+    double s = sideways_tracker.position(deg);
+
+    double df = (f - last_f) * TRACKING_WHEEL_CIRCUMFERENCE / 360.0;
+    double ds = (s - last_s) * TRACKING_WHEEL_CIRCUMFERENCE / 360.0;
+
+    last_f = f;
+    last_s = s;
+
+
+
+    double theta = inertial_sensor.rotation(deg) * M_PI / 180.0;
+
+    double dy = df * cos(theta) + ds * sin(theta);
+    double dx = ds * cos(theta) - df * sin(theta);
+
+    odometry_mutex.lock();
+    global_x += dx;
+    global_y += dy;
+    odometry_mutex.unlock();
+    wait(20, msec);
+  }
+}
+*/
+
+
+const double FORWARD_OFFSET = -95.0;   // mm (negative because it's to the LEFT)
+const double SIDEWAYS_OFFSET = 32.0;   // mm (positive because it's in FRONT)
+
+void odom_Task(void) {
+  while (true) {
+    double f = forward_tracker.position(deg);
+    double s = sideways_tracker.position(deg);
+
+    double df = (f - last_f) * TRACKING_WHEEL_CIRCUMFERENCE / 360.0;
+    double ds = (s - last_s) * TRACKING_WHEEL_CIRCUMFERENCE / 360.0;
+
+    last_f = f;
+    last_s = s;
+
+    double theta = inertial_sensor.rotation(deg) * M_PI / 180.0;
+    double dtheta = theta - last_theta;
+    last_theta = theta;
+
+    // Remove arc motion from wheel movements
+    double local_df = df - (SIDEWAYS_OFFSET * dtheta);
+    double local_ds = ds + (FORWARD_OFFSET * dtheta);
+
+    // Transform to global coordinates
+    double dy = local_df * cos(theta) + local_ds * sin(theta);
+    double dx = local_ds * cos(theta) - local_df * sin(theta);
+
+    odometry_mutex.lock();
+    global_x += dx;
+    global_y += dy;
+    odometry_mutex.unlock();
+    wait(20, msec);
   }
 }
 
 
 
-void pause(void){
-  left_side.spin(forward, 0, percent);
-  right_side.spin(forward, 0, percent);
-  paused = true;
-}
 int main() {
   pre_auton();
   //Competition properties
   Competition.autonomous(autonomous);
   Competition.drivercontrol(usercontrol);
   
-  //Display
-  //thread blinkScreenThread = thread(display);
+  //Display and Odometry
+  thread blinkScreen_thread = thread(display);
+  thread odometry_thread = thread(odom_Task);
 
+  controller_1.ButtonB.pressed(slow_toggle);
+  controller_1.ButtonB.released(slow_toggle);
   //Button Press Event Triggers
-  controller_1.ButtonL2.pressed(top_goal_score);
-  controller_1.ButtonL1.pressed(storage);
-  controller_1.ButtonR1.pressed(low_goal_score);
-
+  
+  controller_1.ButtonL1.pressed(top_goal_score);
+  controller_1.ButtonL2.pressed(storage);
   controller_1.ButtonL2.released(intake_stop);
   controller_1.ButtonL1.released(intake_stop);
+  //controller_1.ButtonA.pressed(piston1Change);
+  //controller_1.ButtonY.pressed(piston2Change);
+
+  controller_1.ButtonR2.pressed(middle_goal_score);
+  controller_1.ButtonR2.released(intake_stop);
+  controller_1.ButtonR1.pressed(low_goal_score);
   controller_1.ButtonR1.released(intake_stop);
 
-  controller_1.ButtonB.pressed(pistonChange);
-  controller_1.ButtonY.pressed(pistonChange);
-
-  controller_1.ButtonA.pressed(pause);
 
   while (true) {
       wait(cpu_MSEC_delay, msec);
